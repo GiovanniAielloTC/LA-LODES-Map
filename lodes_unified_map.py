@@ -1,11 +1,12 @@
 """
-LODES Unified Map - Block, Tract, and ZIP Code Views
+LODES Unified Map - Block, Tract, ZIP Code, and Submarket Views
 Toggle between geographic granularities with sector filtering
 """
 import pandas as pd
 import numpy as np
 from pathlib import Path
 import json
+import yaml
 import warnings
 import ssl
 import requests
@@ -169,7 +170,79 @@ def aggregate_to_levels(df):
     else:
         zip_df = pd.DataFrame()
     
-    return block_df, tract_df, zip_df
+    # --- SUBMARKET LEVEL (37 data-driven submarkets) ---
+    print("Processing submarket level...")
+    submarket_df = aggregate_to_submarkets(zip_df)
+    
+    return block_df, tract_df, zip_df, submarket_df
+
+
+def load_submarket_config():
+    """Load the 37-submarket configuration."""
+    config_path = Path('data/submarkets_optimized_37.yaml')
+    
+    if not config_path.exists():
+        print("  Warning: Submarket config not found")
+        return None, {}
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    submarkets = config['la_optimized_submarkets']['submarkets']
+    
+    # Create ZIP to submarket mapping
+    zip_to_submarket = {}
+    for submarket_name, data in submarkets.items():
+        for zip_code in data['zip_codes']:
+            zip_to_submarket[str(zip_code)] = submarket_name
+    
+    print(f"  Loaded {len(submarkets)} submarkets with {len(zip_to_submarket)} ZIP codes")
+    return submarkets, zip_to_submarket
+
+
+def aggregate_to_submarkets(zip_df):
+    """Aggregate ZIP-level data to 37 submarkets."""
+    submarkets, zip_to_submarket = load_submarket_config()
+    
+    if not submarkets or len(zip_df) == 0:
+        return pd.DataFrame()
+    
+    # Add submarket to ZIP data
+    zip_df = zip_df.copy()
+    zip_df['submarket'] = zip_df['zip'].map(zip_to_submarket)
+    
+    # Filter to ZIPs that have a submarket assignment
+    zip_with_submarket = zip_df[zip_df['submarket'].notna()].copy()
+    print(f"  ZIPs matched to submarkets: {len(zip_with_submarket)}")
+    
+    # Aggregate to submarket level
+    agg_cols = ['total_jobs'] + CNS_COLS
+    submarket_df = zip_with_submarket.groupby('submarket')[agg_cols].sum().reset_index()
+    
+    # Calculate dominant sector and LQ
+    submarket_df['dominant_cns'] = submarket_df[CNS_COLS].idxmax(axis=1)
+    submarket_df['dominant_jobs'] = submarket_df[CNS_COLS].max(axis=1)
+    submarket_df['concentration'] = submarket_df['dominant_jobs'] / submarket_df['total_jobs']
+    
+    county_totals = submarket_df[['total_jobs'] + CNS_COLS].sum()
+    for cns in CNS_COLS:
+        county_share = county_totals[cns] / county_totals['total_jobs'] if county_totals['total_jobs'] > 0 else 0
+        submarket_df[f'{cns}_share'] = submarket_df[cns] / submarket_df['total_jobs'].replace(0, np.nan)
+        submarket_df[f'{cns}_lq'] = submarket_df[f'{cns}_share'] / county_share if county_share > 0 else 0
+    
+    submarket_df['dominant_sector'] = submarket_df['dominant_cns'].map(
+        lambda x: SECTORS.get(x, ('XX', 'Unknown', '#888'))[1]
+    )
+    submarket_df['sector_color'] = submarket_df['dominant_cns'].map(
+        lambda x: SECTORS.get(x, ('XX', 'Unknown', '#888'))[2]
+    )
+    
+    # Add ZIP codes list for each submarket (for boundary merging)
+    submarket_zips = zip_with_submarket.groupby('submarket')['zip'].apply(list).to_dict()
+    submarket_df['zip_codes'] = submarket_df['submarket'].map(submarket_zips)
+    
+    print(f"  Submarkets with jobs: {len(submarket_df):,}")
+    return submarket_df
 
 
 def download_tract_boundaries():
@@ -321,7 +394,7 @@ def download_block_centroids(block_df):
     return None
 
 
-def merge_data_with_boundaries(tract_df, zip_df, block_df):
+def merge_data_with_boundaries(tract_df, zip_df, submarket_df, block_df):
     """Merge aggregated data with geographic boundaries."""
     
     # --- TRACT GEOJSON ---
@@ -352,6 +425,9 @@ def merge_data_with_boundaries(tract_df, zip_df, block_df):
     # --- ZIP GEOJSON (use pre-aggregated zip_df from LODES crosswalk) ---
     zip_geojson = download_zcta_boundaries()
     
+    # Build ZIP to submarket mapping for later use
+    _, zip_to_submarket = load_submarket_config()
+    
     if zip_geojson and len(zip_df) > 0:
         print("Merging pre-aggregated ZIP data with boundaries...")
         zip_lookup = zip_df.set_index('zip').to_dict('index')
@@ -360,6 +436,7 @@ def merge_data_with_boundaries(tract_df, zip_df, block_df):
         for feature in zip_geojson['features']:
             zcta = feature['properties'].get('ZCTA5') or feature['properties'].get('GEOID', '')
             feature['properties']['zip'] = zcta
+            feature['properties']['submarket'] = zip_to_submarket.get(zcta, '')
             
             if zcta in zip_lookup:
                 data = zip_lookup[zcta]
@@ -381,6 +458,12 @@ def merge_data_with_boundaries(tract_df, zip_df, block_df):
         print(f"  ZCTAs matched: {matched_count}")
     elif zip_geojson:
         print("  No ZIP data available, boundaries will show empty")
+    
+    # --- SUBMARKET GEOJSON (dissolve ZIP boundaries by submarket) ---
+    submarket_geojson = None
+    if zip_geojson and len(submarket_df) > 0:
+        print("Creating submarket boundaries from ZCTAs...")
+        submarket_geojson = create_submarket_boundaries(zip_geojson, submarket_df, zip_to_submarket)
     
     # --- BLOCK POINTS ---
     block_centroids = download_block_centroids(block_df)
@@ -404,7 +487,76 @@ def merge_data_with_boundaries(tract_df, zip_df, block_df):
     
     print(f"Block points prepared: {len(block_points):,}")
     
-    return tract_geojson, zip_geojson, block_points
+    return tract_geojson, zip_geojson, submarket_geojson, block_points
+
+
+def create_submarket_boundaries(zip_geojson, submarket_df, zip_to_submarket):
+    """Create submarket boundaries by grouping ZIP polygons."""
+    from shapely.geometry import shape, mapping
+    from shapely.ops import unary_union
+    from shapely.validation import make_valid
+    
+    # Group ZIP features by submarket
+    submarket_polygons = {}
+    for feature in zip_geojson['features']:
+        zcta = feature['properties'].get('ZCTA5') or feature['properties'].get('GEOID', '')
+        submarket = zip_to_submarket.get(zcta)
+        
+        if submarket:
+            if submarket not in submarket_polygons:
+                submarket_polygons[submarket] = []
+            try:
+                geom = shape(feature['geometry'])
+                if not geom.is_valid:
+                    geom = make_valid(geom)
+                if geom.is_valid:
+                    submarket_polygons[submarket].append(geom)
+            except Exception as e:
+                pass
+    
+    # Create dissolved features
+    submarket_lookup = submarket_df.set_index('submarket').to_dict('index')
+    features = []
+    
+    print(f"  Dissolving {len(submarket_polygons)} submarkets...")
+    for i, (submarket_name, polygons) in enumerate(submarket_polygons.items()):
+        if polygons:
+            try:
+                # Dissolve all ZIPs in this submarket into one polygon
+                # Use buffer(0) to clean up any invalid geometries
+                dissolved = unary_union(polygons)
+                if not dissolved.is_valid:
+                    dissolved = dissolved.buffer(0)
+                
+                # Get submarket data
+                data = submarket_lookup.get(submarket_name, {})
+                
+                feature = {
+                    'type': 'Feature',
+                    'geometry': mapping(dissolved),
+                    'properties': {
+                        'submarket': submarket_name,
+                        'total_jobs': int(data.get('total_jobs', 0)),
+                        'dominant_sector': data.get('dominant_sector', 'None'),
+                        'sector_color': data.get('sector_color', '#333'),
+                        'concentration': round(data.get('concentration', 0) * 100, 1)
+                    }
+                }
+                
+                # Add sector-specific data
+                for cns, (naics, name, color) in SECTORS.items():
+                    feature['properties'][f'{name}_jobs'] = int(data.get(cns, 0))
+                    feature['properties'][f'{name}_lq'] = round(data.get(f'{cns}_lq', 0), 2)
+                
+                features.append(feature)
+            except Exception as e:
+                print(f"  Warning: Failed to dissolve {submarket_name}: {e}")
+        
+        if (i + 1) % 10 == 0:
+            print(f"    Processed {i + 1}/{len(submarket_polygons)} submarkets...")
+    
+    print(f"  Created {len(features)} submarket boundaries")
+    return {'type': 'FeatureCollection', 'features': features}
 
 
 def calculate_sector_stats(tract_df):
@@ -423,9 +575,9 @@ def calculate_sector_stats(tract_df):
     return dict(sorted(sector_stats.items(), key=lambda x: -x[1]['total_jobs']))
 
 
-def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats, 
+def create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_points, sector_stats, 
                        output_path='output/lodes_unified_map.html'):
-    """Create unified map with block/tract/ZIP toggle."""
+    """Create unified map with block/tract/ZIP/submarket toggle."""
     
     # Limit block points for performance (top N by jobs)
     if len(block_points) > 10000:
@@ -608,6 +760,9 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
             <button class="geo-btn" onclick="setGeoLevel('zip')" id="btn-zip">
                 <span class="icon">📮</span>ZIP
             </button>
+            <button class="geo-btn" onclick="setGeoLevel('submarket')" id="btn-submarket">
+                <span class="icon">🏘️</span>Submarket
+            </button>
         </div>
         
         <div class="view-toggle">
@@ -641,6 +796,7 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
         // Data
         const tractGeojson = {json.dumps(tract_geojson)};
         const zipGeojson = {json.dumps(zip_geojson) if zip_geojson else 'null'};
+        const submarketGeojson = {json.dumps(submarket_geojson) if submarket_geojson else 'null'};
         const blockPoints = {json.dumps(block_points)};
         const sectorStats = {json.dumps(sector_stats)};
         
@@ -695,13 +851,14 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
         // Style for choropleth
         function getChoroplethStyle(feature) {{
             const props = feature.properties;
+            const isAggregated = (currentGeoLevel === 'zip' || currentGeoLevel === 'submarket');
             
             if (currentView === 'dominant') {{
                 return {{
                     fillColor: getDominantColor(props),
-                    weight: currentGeoLevel === 'zip' ? 1.5 : 0.5,
+                    weight: isAggregated ? 1.5 : 0.5,
                     opacity: 0.8,
-                    color: currentGeoLevel === 'zip' ? '#555' : '#333',
+                    color: isAggregated ? '#555' : '#333',
                     fillOpacity: props && props.total_jobs > 0 ? 0.7 : 0.1
                 }};
             }} else if (selectedSector) {{
@@ -709,9 +866,9 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
                 const lq = props ? (props[selectedSector + '_lq'] || 0) : 0;
                 return {{
                     fillColor: getLQColor(lq, stats.color),
-                    weight: currentGeoLevel === 'zip' ? 1.5 : 0.5,
+                    weight: isAggregated ? 1.5 : 0.5,
                     opacity: 0.8,
-                    color: currentGeoLevel === 'zip' ? '#555' : '#333',
+                    color: isAggregated ? '#555' : '#333',
                     fillOpacity: 0.9
                 }};
             }} else {{
@@ -746,6 +903,7 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
             let areaName = '';
             if (currentGeoLevel === 'tract') areaName = 'Tract ' + (props.BASENAME || props.GEOID || '');
             else if (currentGeoLevel === 'zip') areaName = 'ZIP ' + (props.zip || props.ZCTA5 || '');
+            else if (currentGeoLevel === 'submarket') areaName = props.submarket || 'Submarket';
             else areaName = 'Block';
             
             title.textContent = areaName;
@@ -855,6 +1013,8 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
                 drawChoropleth(tractGeojson);
             }} else if (currentGeoLevel === 'zip') {{
                 drawChoropleth(zipGeojson);
+            }} else if (currentGeoLevel === 'submarket') {{
+                drawChoropleth(submarketGeojson);
             }}
             updateLegend();
         }}
@@ -925,21 +1085,23 @@ def create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats,
 
 def main():
     print("=" * 60)
-    print("LODES Unified Map - Block/Tract/ZIP Views")
+    print("LODES Unified Map - Block/Tract/ZIP/Submarket Views")
     print("=" * 60)
     
     # Load and aggregate data
     df = load_lodes_data()
-    block_df, tract_df, zip_df = aggregate_to_levels(df)
+    block_df, tract_df, zip_df, submarket_df = aggregate_to_levels(df)
     
     # Merge with boundaries
-    tract_geojson, zip_geojson, block_points = merge_data_with_boundaries(tract_df, zip_df, block_df)
+    tract_geojson, zip_geojson, submarket_geojson, block_points = merge_data_with_boundaries(
+        tract_df, zip_df, submarket_df, block_df
+    )
     
     # Calculate stats
     sector_stats = calculate_sector_stats(tract_df)
     
     # Create map
-    create_unified_map(tract_geojson, zip_geojson, block_points, sector_stats)
+    create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_points, sector_stats)
     
     print("\n✅ Done!")
     print("\nOpen output/lodes_unified_map.html in your browser")

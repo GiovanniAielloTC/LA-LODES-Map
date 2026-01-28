@@ -1,0 +1,440 @@
+la_optimized_submarkets:
+  version: '1.0'
+  created: '2025-10-24'
+  description: Data-driven 37 submarkets based on commute similarity + SHAP features
+  total_submarkets: 37
+  total_zip_codes: 285
+  submarkets:
+    Hollywood/West Hollywood/Van Nuys/Burbank:
+      zip_codes:
+      - '90028'
+      - '90036'
+      - '90038'
+      - '90046'
+      - '90048'
+      - '90067'
+      - '90068'
+      - '90069'
+      - '91401'
+      - '91403'
+      - '91406'
+      - '91411'
+      - '91423'
+      - '91436'
+      - '91501'
+      - '91502'
+      - '91504'
+      - '91505'
+      - '91506'
+      - '91601'
+      - '91602'
+      - '91604'
+      - '91606'
+      - '91607'
+      cluster_id: 0
+      description: Data-driven cluster 0
+    Westside/Santa Monica/Venice:
+      zip_codes:
+      - '90024'
+      - '90025'
+      - '90034'
+      - '90049'
+      - '90064'
+      - '90066'
+      - '90094'
+      - '90230'
+      - '90232'
+      - '90272'
+      - '90290'
+      - '90291'
+      - '90292'
+      - '90293'
+      - '90401'
+      - '90402'
+      - '90403'
+      - '90404'
+      - '90405'
+      cluster_id: 1
+      description: Data-driven cluster 1
+    South LA/Watts/Compton:
+      zip_codes:
+      - '90001'
+      - '90002'
+      - '90003'
+      - '90011'
+      - '90058'
+      - '90059'
+      - '90061'
+      - '90220'
+      - '90221'
+      - '90222'
+      - '90255'
+      - '90262'
+      - '90280'
+      cluster_id: 2
+      description: Data-driven cluster 2
+    Southwest LA/Baldwin Hills/Leimert Park:
+      zip_codes:
+      - '90007'
+      - '90008'
+      - '90016'
+      - '90018'
+      - '90037'
+      - '90043'
+      - '90044'
+      - '90047'
+      - '90056'
+      - '90062'
+      - '90305'
+      cluster_id: 3
+      description: Data-driven cluster 3
+    Koreatown/Mid-Wilshire:
+      zip_codes:
+      - '90004'
+      - '90005'
+      - '90006'
+      - '90010'
+      - '90019'
+      - '90020'
+      - '90057'
+      cluster_id: 4
+      description: Data-driven cluster 4
+    El Segundo/Manhattan Beach/Inglewood:
+      zip_codes:
+      - '90045'
+      - '90249'
+      - '90250'
+      - '90260'
+      - '90301'
+      - '90302'
+      - '90303'
+      - '90304'
+      cluster_id: 5
+      description: Data-driven cluster 5
+    Long Beach (Central/East):
+      zip_codes:
+      - '90712'
+      - '90713'
+      - '90755'
+      - '90802'
+      - '90803'
+      - '90804'
+      - '90808'
+      - '90814'
+      - '90815'
+      cluster_id: 6
+      description: Data-driven cluster 6
+    Santa Clarita Valley/Palmdale North:
+      zip_codes:
+      - '91321'
+      - '91350'
+      - '91351'
+      - '91354'
+      - '91355'
+      - '91381'
+      - '91384'
+      - '91387'
+      - '91390'
+      - '93243'
+      - '93510'
+      - '93532'
+      cluster_id: 7
+      description: Data-driven cluster 7
+    Lancaster/Palmdale/Antelope Valley:
+      zip_codes:
+      - '93534'
+      - '93535'
+      - '93536'
+      - '93543'
+      - '93544'
+      - '93550'
+      - '93551'
+      - '93552'
+      - '93553'
+      - '93563'
+      - '93591'
+      cluster_id: 8
+      description: Data-driven cluster 8
+    Whittier/La Mirada/Norwalk:
+      zip_codes:
+      - '90601'
+      - '90602'
+      - '90603'
+      - '90604'
+      - '90605'
+      - '90606'
+      - '90631'
+      - '90638'
+      - '90650'
+      - '90660'
+      - '90670'
+      cluster_id: 9
+      description: Data-driven cluster 9
+    Torrance/Rolling Hills/San Pedro West:
+      zip_codes:
+      - '90247'
+      - '90248'
+      - '90274'
+      - '90275'
+      - '90501'
+      - '90502'
+      - '90503'
+      - '90504'
+      - '90505'
+      - '90710'
+      - '90717'
+      - '90745'
+      - '90746'
+      cluster_id: 10
+      description: Data-driven cluster 10
+    West San Fernando Valley (Woodland Hills):
+      zip_codes:
+      - '91303'
+      - '91304'
+      - '91306'
+      - '91307'
+      - '91311'
+      - '91335'
+      - '91364'
+      - '91367'
+      cluster_id: 11
+      description: Data-driven cluster 11
+    Pasadena/San Marino/South Pasadena:
+      zip_codes:
+      - '91001'
+      - '91011'
+      - '91024'
+      - '91030'
+      - '91101'
+      - '91103'
+      - '91104'
+      - '91105'
+      - '91106'
+      - '91107'
+      cluster_id: 12
+      description: Data-driven cluster 12
+    Downey/Pico Rivera/Bellflower North:
+      zip_codes:
+      - '90240'
+      - '90241'
+      - '90242'
+      - '90706'
+      - '90723'
+      cluster_id: 13
+      description: Data-driven cluster 13
+    La Palma/Cerritos/Artesia:
+      zip_codes:
+      - '90623'
+      - '90630'
+      - '90701'
+      - '90703'
+      - '90715'
+      - '90716'
+      cluster_id: 14
+      description: Data-driven cluster 14
+    North San Fernando Valley (Porter Ranch):
+      zip_codes:
+      - '91324'
+      - '91325'
+      - '91326'
+      - '91343'
+      - '91344'
+      - '91345'
+      - '91402'
+      - '91405'
+      cluster_id: 15
+      description: Data-driven cluster 15
+    Pacoima/San Fernando/Sylmar:
+      zip_codes:
+      - '91331'
+      - '91340'
+      - '91342'
+      - '91352'
+      - '91605'
+      cluster_id: 16
+      description: Data-driven cluster 16
+    Malibu/Agoura Hills/Calabasas:
+      zip_codes:
+      - '90265'
+      - '91301'
+      - '91302'
+      - '91361'
+      - '91362'
+      cluster_id: 17
+      description: Data-driven cluster 17
+    Pomona East/Victorville:
+      zip_codes:
+      - '91759'
+      - '92397'
+      cluster_id: 18
+      description: Data-driven cluster 18
+    Downtown LA (Financial District):
+      zip_codes:
+      - '90013'
+      - '90014'
+      - '90015'
+      - '90017'
+      - '90021'
+      cluster_id: 19
+      description: Data-driven cluster 19
+    Silver Lake/Echo Park/Los Feliz:
+      zip_codes:
+      - '90026'
+      - '90027'
+      - '90029'
+      - '90039'
+      cluster_id: 20
+      description: Data-driven cluster 20
+    East LA/Boyle Heights/Montebello:
+      zip_codes:
+      - '90022'
+      - '90023'
+      - '90033'
+      - '90040'
+      - '90063'
+      - '90201'
+      - '90270'
+      - '90640'
+      cluster_id: 21
+      description: Data-driven cluster 21
+    Chinatown/Highland Park/Eagle Rock:
+      zip_codes:
+      - '90012'
+      - '90031'
+      - '90032'
+      - '90041'
+      - '90042'
+      - '90065'
+      cluster_id: 22
+      description: Data-driven cluster 22
+    Beverly Hills/Bel Air/Century City South:
+      zip_codes:
+      - '90035'
+      - '90077'
+      - '90210'
+      - '90211'
+      - '90212'
+      cluster_id: 23
+      description: Data-driven cluster 23
+    Manhattan Beach/Hermosa Beach/Redondo Beach:
+      zip_codes:
+      - '90245'
+      - '90254'
+      - '90266'
+      - '90277'
+      - '90278'
+      cluster_id: 24
+      description: Data-driven cluster 24
+    San Pedro/Wilmington/Terminal Island:
+      zip_codes:
+      - '90731'
+      - '90732'
+      - '90744'
+      cluster_id: 25
+      description: Data-driven cluster 25
+    Long Beach (West/North):
+      zip_codes:
+      - '90805'
+      - '90806'
+      - '90807'
+      - '90810'
+      - '90813'
+      cluster_id: 26
+      description: Data-driven cluster 26
+    Glendale (Central):
+      zip_codes:
+      - '91201'
+      - '91202'
+      - '91203'
+      - '91204'
+      - '91205'
+      - '91206'
+      - '91207'
+      - '91210'
+      cluster_id: 27
+      description: Data-driven cluster 27
+    "La Ca\xF1ada Flintridge/Montrose/Tujunga":
+      zip_codes:
+      - '91020'
+      - '91040'
+      - '91042'
+      - '91046'
+      - '91208'
+      - '91214'
+      cluster_id: 28
+      description: Data-driven cluster 28
+    Hidden Hills/Encino North:
+      zip_codes:
+      - '91316'
+      - '91356'
+      cluster_id: 29
+      description: Data-driven cluster 29
+    Arcadia/Sierra Madre/Monrovia:
+      zip_codes:
+      - '91006'
+      - '91007'
+      - '91008'
+      - '91010'
+      - '91016'
+      cluster_id: 30
+      description: Data-driven cluster 30
+    Claremont:
+      zip_codes:
+      - '91711'
+      cluster_id: 31
+      description: Data-driven cluster 31
+    La Puente/Hacienda Heights/Rowland Heights:
+      zip_codes:
+      - '91702'
+      - '91722'
+      - '91723'
+      - '91724'
+      - '91740'
+      - '91741'
+      - '91750'
+      - '91773'
+      cluster_id: 32
+      description: Data-driven cluster 32
+    Chino Hills/Diamond Bar:
+      zip_codes:
+      - '91709'
+      - '91765'
+      - '91766'
+      - '91767'
+      - '91768'
+      - '91789'
+      cluster_id: 33
+      description: Data-driven cluster 33
+    Baldwin Park/West Covina/Covina:
+      zip_codes:
+      - '91706'
+      - '91731'
+      - '91732'
+      - '91733'
+      - '91744'
+      - '91745'
+      - '91746'
+      - '91748'
+      - '91790'
+      - '91791'
+      - '91792'
+      cluster_id: 34
+      description: Data-driven cluster 34
+    San Marino East/Rosemead/El Monte/Alhambra:
+      zip_codes:
+      - '91108'
+      - '91754'
+      - '91755'
+      - '91770'
+      - '91775'
+      - '91776'
+      - '91780'
+      - '91801'
+      - '91803'
+      cluster_id: 35
+      description: Data-driven cluster 35
+    Avalon (Catalina Island):
+      zip_codes:
+      - '90704'
+      cluster_id: 36
+      description: Data-driven cluster 36
