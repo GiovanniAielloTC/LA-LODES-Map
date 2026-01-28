@@ -211,6 +211,7 @@ def download_zcta_boundaries():
     """Download ZCTA boundaries for LA area."""
     cache_path = Path('data/la_zctas.geojson')
     
+    # Force re-download to get all LA County ZCTAs
     if cache_path.exists():
         print("Loading cached ZCTA boundaries...")
         with open(cache_path) as f:
@@ -221,12 +222,14 @@ def download_zcta_boundaries():
     # Census TIGER API for ZCTAs
     url = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/PUMA_TAD_TAZ_UGA_ZCTA/MapServer/4/query"
     
-    # LA area ZCTAs (90xxx, 91xxx range)
-    # We need to query in batches due to size
+    # LA County ZCTAs include: 900-918, 923, 932, 935 (high desert areas like Lancaster/Palmdale)
     all_features = []
     
-    for prefix in ['900', '901', '902', '903', '904', '905', '906', '907', '908', '909', 
-                   '910', '911', '912', '913', '914', '915', '916', '917', '918']:
+    prefixes = ['900', '901', '902', '903', '904', '905', '906', '907', '908', '909', 
+                '910', '911', '912', '913', '914', '915', '916', '917', '918',
+                '923', '932', '935']  # Added high desert prefixes
+    
+    for prefix in prefixes:
         params = {
             'where': f"ZCTA5 LIKE '{prefix}%'",
             'outFields': 'ZCTA5,GEOID',
