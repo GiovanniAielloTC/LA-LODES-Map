@@ -58,22 +58,32 @@ def load_lodes_data():
 
 
 def download_zcta_crosswalk():
-    """Create tract to ZCTA mapping using spatial intersection approximation."""
-    crosswalk_path = Path('data/tract_zcta_crosswalk.parquet')
+    """Download LODES official block-to-ZCTA crosswalk."""
+    crosswalk_path = Path('data/lodes_block_zcta_xwalk.parquet')
     
     if crosswalk_path.exists():
-        print("Loading cached tract-ZCTA crosswalk...")
+        print("Loading cached LODES block-ZCTA crosswalk...")
         return pd.read_parquet(crosswalk_path)
     
-    print("Creating tract to ZCTA mapping...")
+    print("Downloading LODES geographic crosswalk...")
     
-    # We'll use a simple approach: map tracts to ZCTAs based on centroid
-    # This requires downloading both boundaries and doing spatial join
-    # For now, use a pre-computed mapping for LA County
+    # Official LODES crosswalk file with block-to-ZCTA mapping
+    url = 'https://lehd.ces.census.gov/data/lodes/LODES8/ca/ca_xwalk.csv.gz'
     
-    # LA County tract to ZIP mapping (approximate, based on USPS/Census data)
-    # This is a simplified version - in production you'd use spatial intersection
-    return None  # Will use ZCTA geojson directly with job counts from tracts
+    try:
+        xwalk = pd.read_csv(url, compression='gzip', dtype=str, 
+                           usecols=['tabblk2020', 'zcta', 'cty'])
+        
+        # Filter to LA County (06037)
+        xwalk = xwalk[xwalk['cty'] == '06037'].copy()
+        xwalk = xwalk[['tabblk2020', 'zcta']].dropna()
+        
+        xwalk.to_parquet(crosswalk_path)
+        print(f"Cached {len(xwalk):,} block-ZCTA mappings ({xwalk['zcta'].nunique()} ZCTAs)")
+        return xwalk
+    except Exception as e:
+        print(f"Failed to download crosswalk: {e}")
+        return None
 
 
 def aggregate_to_levels(df):
@@ -121,14 +131,43 @@ def aggregate_to_levels(df):
     
     print(f"  Tracts: {len(tract_df):,}")
     
-    # --- ZIP LEVEL ---
+    # --- ZIP LEVEL (using official LODES crosswalk) ---
     print("Processing ZIP level...")
+    xwalk = download_zcta_crosswalk()
     
-    # Aggregate tracts into ZIPs using spatial join (done during boundary merge)
-    # For now, compute ZIP-level aggregates that will be assigned spatially
-    # We create an empty dataframe - ZIP data comes from ZCTA boundary matching
-    zip_df = pd.DataFrame()
-    print("  ZIP data will be populated from ZCTA boundaries")
+    if xwalk is not None:
+        # Merge block data with ZCTA crosswalk
+        df['tabblk2020'] = df['w_geocode']
+        zip_merged = df.merge(xwalk, on='tabblk2020', how='inner')
+        
+        print(f"  Blocks matched to ZCTA: {len(zip_merged):,}")
+        
+        # Aggregate to ZIP level
+        zip_df = zip_merged.groupby('zcta')[agg_cols].sum().reset_index()
+        zip_df.columns = ['zip', 'total_jobs'] + CNS_COLS
+        zip_df = zip_df[zip_df['total_jobs'] > 0].copy()
+        
+        # Calculate dominant sector and LQ for ZIPs
+        zip_df['dominant_cns'] = zip_df[CNS_COLS].idxmax(axis=1)
+        zip_df['dominant_jobs'] = zip_df[CNS_COLS].max(axis=1)
+        zip_df['concentration'] = zip_df['dominant_jobs'] / zip_df['total_jobs']
+        
+        county_totals = zip_df[['total_jobs'] + CNS_COLS].sum()
+        for cns in CNS_COLS:
+            county_share = county_totals[cns] / county_totals['total_jobs'] if county_totals['total_jobs'] > 0 else 0
+            zip_df[f'{cns}_share'] = zip_df[cns] / zip_df['total_jobs'].replace(0, np.nan)
+            zip_df[f'{cns}_lq'] = zip_df[f'{cns}_share'] / county_share if county_share > 0 else 0
+        
+        zip_df['dominant_sector'] = zip_df['dominant_cns'].map(
+            lambda x: SECTORS.get(x, ('XX', 'Unknown', '#888'))[1]
+        )
+        zip_df['sector_color'] = zip_df['dominant_cns'].map(
+            lambda x: SECTORS.get(x, ('XX', 'Unknown', '#888'))[2]
+        )
+        
+        print(f"  ZIP codes with jobs: {len(zip_df):,}")
+    else:
+        zip_df = pd.DataFrame()
     
     return block_df, tract_df, zip_df
 
@@ -286,23 +325,9 @@ def merge_data_with_boundaries(tract_df, zip_df, block_df):
     tract_geojson = download_tract_boundaries()
     tract_lookup = tract_df.set_index('tract').to_dict('index')
     
-    # Calculate tract centroids for ZIP assignment
-    tract_centroids = {}
     for feature in tract_geojson['features']:
         geoid = feature['properties']['GEOID']
         tract_id = geoid[:11] if len(geoid) > 11 else geoid
-        
-        # Calculate centroid
-        coords = feature['geometry']['coordinates']
-        if feature['geometry']['type'] == 'Polygon':
-            coords = coords[0]
-        elif feature['geometry']['type'] == 'MultiPolygon':
-            coords = max(coords, key=lambda x: len(x[0]))[0]
-        
-        if coords:
-            lons = [c[0] for c in coords]
-            lats = [c[1] for c in coords]
-            tract_centroids[tract_id] = (np.mean(lons), np.mean(lats))
         
         if tract_id in tract_lookup:
             data = tract_lookup[tract_id]
@@ -321,119 +346,38 @@ def merge_data_with_boundaries(tract_df, zip_df, block_df):
             feature['properties']['sector_color'] = '#333'
             feature['properties']['concentration'] = 0
     
-    # --- ZIP GEOJSON (aggregate from tracts) ---
+    # --- ZIP GEOJSON (use pre-aggregated zip_df from LODES crosswalk) ---
     zip_geojson = download_zcta_boundaries()
     
-    if zip_geojson:
-        print("Aggregating tract data into ZCTAs...")
+    if zip_geojson and len(zip_df) > 0:
+        print("Merging pre-aggregated ZIP data with boundaries...")
+        zip_lookup = zip_df.set_index('zip').to_dict('index')
         
-        # Calculate ZCTA centroids and bounding boxes
-        zcta_bounds = {}
-        for feature in zip_geojson['features']:
-            zcta = feature['properties'].get('ZCTA5') or feature['properties'].get('GEOID', '')
-            coords = feature['geometry']['coordinates']
-            
-            if feature['geometry']['type'] == 'Polygon':
-                all_coords = coords[0]
-            elif feature['geometry']['type'] == 'MultiPolygon':
-                all_coords = [c for poly in coords for ring in poly for c in ring]
-            else:
-                all_coords = []
-            
-            if all_coords:
-                lons = [c[0] for c in all_coords]
-                lats = [c[1] for c in all_coords]
-                zcta_bounds[zcta] = {
-                    'min_lon': min(lons), 'max_lon': max(lons),
-                    'min_lat': min(lats), 'max_lat': max(lats),
-                    'center_lon': np.mean(lons), 'center_lat': np.mean(lats)
-                }
-        
-        # Assign each tract to nearest ZCTA (simple point-in-bbox approximation)
-        tract_to_zcta = {}
-        for tract_id, (lon, lat) in tract_centroids.items():
-            best_zcta = None
-            best_dist = float('inf')
-            
-            for zcta, bounds in zcta_bounds.items():
-                # Check if tract centroid is inside ZCTA bbox
-                if (bounds['min_lon'] <= lon <= bounds['max_lon'] and
-                    bounds['min_lat'] <= lat <= bounds['max_lat']):
-                    # Calculate distance to center
-                    dist = (lon - bounds['center_lon'])**2 + (lat - bounds['center_lat'])**2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_zcta = zcta
-            
-            # If not in any bbox, find nearest center
-            if best_zcta is None:
-                for zcta, bounds in zcta_bounds.items():
-                    dist = (lon - bounds['center_lon'])**2 + (lat - bounds['center_lat'])**2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_zcta = zcta
-            
-            if best_zcta:
-                tract_to_zcta[tract_id] = best_zcta
-        
-        # Aggregate tract data by ZCTA
-        zcta_data = {}
-        for tract_id, zcta in tract_to_zcta.items():
-            if tract_id in tract_lookup:
-                data = tract_lookup[tract_id]
-                if zcta not in zcta_data:
-                    zcta_data[zcta] = {'total_jobs': 0}
-                    for cns in CNS_COLS:
-                        zcta_data[zcta][cns] = 0
-                
-                zcta_data[zcta]['total_jobs'] += data['total_jobs']
-                for cns in CNS_COLS:
-                    zcta_data[zcta][cns] += data.get(cns, 0)
-        
-        # Calculate dominant sector and LQ for each ZCTA
-        county_totals = {'total_jobs': sum(d['total_jobs'] for d in zcta_data.values())}
-        for cns in CNS_COLS:
-            county_totals[cns] = sum(d[cns] for d in zcta_data.values())
-        
-        for zcta, data in zcta_data.items():
-            if data['total_jobs'] > 0:
-                # Find dominant sector
-                sector_jobs = {cns: data[cns] for cns in CNS_COLS}
-                dominant_cns = max(sector_jobs, key=sector_jobs.get)
-                data['dominant_cns'] = dominant_cns
-                data['dominant_jobs'] = sector_jobs[dominant_cns]
-                data['concentration'] = data['dominant_jobs'] / data['total_jobs']
-                data['dominant_sector'] = SECTORS.get(dominant_cns, ('XX', 'Unknown', '#888'))[1]
-                data['sector_color'] = SECTORS.get(dominant_cns, ('XX', 'Unknown', '#888'))[2]
-                
-                # Calculate LQ for each sector
-                for cns in CNS_COLS:
-                    county_share = county_totals[cns] / county_totals['total_jobs'] if county_totals['total_jobs'] > 0 else 0
-                    zcta_share = data[cns] / data['total_jobs']
-                    data[f'{cns}_lq'] = zcta_share / county_share if county_share > 0 else 0
-        
-        # Assign data to ZIP geojson
+        matched_count = 0
         for feature in zip_geojson['features']:
             zcta = feature['properties'].get('ZCTA5') or feature['properties'].get('GEOID', '')
             feature['properties']['zip'] = zcta
             
-            if zcta in zcta_data:
-                data = zcta_data[zcta]
+            if zcta in zip_lookup:
+                data = zip_lookup[zcta]
                 feature['properties']['total_jobs'] = int(data['total_jobs'])
-                feature['properties']['dominant_sector'] = data.get('dominant_sector', 'None')
-                feature['properties']['sector_color'] = data.get('sector_color', '#333')
-                feature['properties']['concentration'] = round(data.get('concentration', 0) * 100, 1)
+                feature['properties']['dominant_sector'] = data['dominant_sector']
+                feature['properties']['sector_color'] = data['sector_color']
+                feature['properties']['concentration'] = round(data['concentration'] * 100, 1)
                 
                 for cns, (naics, name, color) in SECTORS.items():
                     feature['properties'][f'{name}_jobs'] = int(data.get(cns, 0))
                     feature['properties'][f'{name}_lq'] = round(data.get(f'{cns}_lq', 0), 2)
+                matched_count += 1
             else:
                 feature['properties']['total_jobs'] = 0
                 feature['properties']['dominant_sector'] = 'None'
                 feature['properties']['sector_color'] = '#333'
                 feature['properties']['concentration'] = 0
         
-        print(f"  ZCTAs with data: {len(zcta_data):,}")
+        print(f"  ZCTAs matched: {matched_count}")
+    elif zip_geojson:
+        print("  No ZIP data available, boundaries will show empty")
     
     # --- BLOCK POINTS ---
     block_centroids = download_block_centroids(block_df)
