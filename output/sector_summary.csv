@@ -1,0 +1,21 @@
+sector_name,block_count,total_jobs,sector_jobs,avg_concentration,pct_of_total
+Healthcare,28473,828376,630521,0.89,18.5
+Retail Trade,4255,453740,289053,0.69,10.1
+Education,2487,395380,339032,0.83,8.8
+Information,1158,389328,328161,0.7,8.7
+Manufacturing,1860,359063,231043,0.68,8.0
+Professional Services,4012,338762,174216,0.71,7.6
+Accommodation/Food,4056,301986,177319,0.69,6.7
+Admin Support,2017,290443,181995,0.72,6.5
+Transportation,1492,219777,161225,0.72,4.9
+Wholesale Trade,2062,181437,104387,0.67,4.1
+Public Admin,182,172847,139447,0.8,3.9
+Construction,3872,151883,86136,0.72,3.4
+Finance,978,99549,55922,0.69,2.2
+Management,147,77964,46375,0.64,1.7
+Other Services,3172,75194,47232,0.8,1.7
+Real Estate,1610,54605,28349,0.72,1.2
+Arts/Entertainment,869,51176,36130,0.77,1.1
+Utilities,85,31086,23182,0.74,0.7
+Agriculture,114,3900,2483,0.71,0.1
+Mining,23,1668,802,0.69,0.0

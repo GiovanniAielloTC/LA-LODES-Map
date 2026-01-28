@@ -1,0 +1,6 @@
+pandas
+pyarrow
+pydeck
+folium
+numpy
+requests
