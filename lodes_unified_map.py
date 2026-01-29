@@ -465,13 +465,14 @@ def merge_data_with_boundaries(tract_df, zip_df, submarket_df, block_df):
         print("Creating submarket boundaries from ZCTAs...")
         submarket_geojson = create_submarket_boundaries(zip_geojson, submarket_df, zip_to_submarket)
     
-    # --- BLOCK POINTS ---
+    # --- BLOCK POINTS (simplified - no per-sector data to keep file size small) ---
     block_centroids = download_block_centroids(block_df)
     
     block_points = []
     if block_centroids is not None:
         block_with_coords = block_df.merge(block_centroids, on='block', how='inner')
         
+        # Only keep essential fields for blocks (no per-sector LQ - too heavy)
         for _, row in block_with_coords.iterrows():
             sector_name = SECTORS.get(row['dominant_cns'], ('XX', 'Unknown', '#888'))[1]
             sector_color = SECTORS.get(row['dominant_cns'], ('XX', 'Unknown', '#888'))[2]
@@ -576,13 +577,23 @@ def calculate_sector_stats(tract_df):
 
 
 def create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_points, sector_stats, 
-                       output_path='output/lodes_unified_map.html'):
+                       output_path='output/lodes_unified_map.html', include_blocks=True):
     """Create unified map with block/tract/ZIP/submarket toggle."""
     
     # Limit block points for performance (top N by jobs)
-    if len(block_points) > 10000:
+    if include_blocks and len(block_points) > 10000:
         block_points = sorted(block_points, key=lambda x: -x['total_jobs'])[:10000]
         print(f"Limited to top 10,000 blocks for performance")
+    
+    if not include_blocks:
+        block_points = []  # Clear to reduce file size
+        print("Block layer disabled for lite version")
+    
+    # Build the block button HTML conditionally
+    block_button = '''<button class="geo-btn" onclick="setGeoLevel('block')" id="btn-block">
+                <span class="icon">⬡</span>Block
+            </button>''' if include_blocks else ''
+    tract_active = '' if include_blocks else ' active'
     
     html = f'''<!DOCTYPE html>
 <html>
@@ -751,10 +762,8 @@ def create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_poin
         <h1>🗺️ LA County Employment by Sector</h1>
         
         <div class="geo-toggle">
-            <button class="geo-btn" onclick="setGeoLevel('block')" id="btn-block">
-                <span class="icon">⬡</span>Block
-            </button>
-            <button class="geo-btn active" onclick="setGeoLevel('tract')" id="btn-tract">
+            {block_button}
+            <button class="geo-btn{tract_active}" onclick="setGeoLevel('tract')" id="btn-tract">
                 <span class="icon">▢</span>Tract
             </button>
             <button class="geo-btn" onclick="setGeoLevel('zip')" id="btn-zip">
@@ -840,12 +849,32 @@ def create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_poin
         }}
         
         function getLQColor(lq, baseColor) {{
-            if (lq === undefined || lq === 0) return 'rgba(50,50,50,0.3)';
-            const intensity = Math.min(1, lq / 2);
+            // LQ < 0.5: dark/desaturated, LQ = 1: normal, LQ > 2: bright/saturated
+            if (lq === undefined || lq === 0) return '#1a1a1a';
+            
             const r = parseInt(baseColor.slice(1,3), 16);
             const g = parseInt(baseColor.slice(3,5), 16);
             const b = parseInt(baseColor.slice(5,7), 16);
-            return `rgba(${{r}},${{g}},${{b}},${{0.2 + intensity * 0.7}})`;
+            
+            if (lq < 0.5) {{
+                // Very low LQ - dark gray
+                return '#2a2a2a';
+            }} else if (lq < 0.8) {{
+                // Below average - muted color
+                const factor = 0.3;
+                return `rgb(${{Math.round(r * factor + 30)}},${{Math.round(g * factor + 30)}},${{Math.round(b * factor + 30)}})`;
+            }} else if (lq < 1.2) {{
+                // Average - normal color at medium brightness  
+                const factor = 0.6;
+                return `rgb(${{Math.round(r * factor + 40)}},${{Math.round(g * factor + 40)}},${{Math.round(b * factor + 40)}})`;
+            }} else if (lq < 2.0) {{
+                // Above average - brighter
+                const factor = 0.8;
+                return `rgb(${{Math.round(Math.min(255, r * factor + 50))}},${{Math.round(Math.min(255, g * factor + 50))}},${{Math.round(Math.min(255, b * factor + 50))}})`;
+            }} else {{
+                // High LQ (2+) - full bright color
+                return baseColor;
+            }}
         }}
         
         // Style for choropleth
@@ -969,14 +998,28 @@ def create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_poin
             
             setTimeout(() => {{
                 blockPoints.forEach((pt, i) => {{
+                    // In sector filter mode, only show blocks where that sector is dominant
                     if (currentView === 'filter' && selectedSector && pt.dominant_sector !== selectedSector) {{
-                        return;  // Skip non-matching sectors in filter mode
+                        return;
                     }}
                     
-                    const color = currentView === 'dominant' ? pt.sector_color : 
-                        (selectedSector && pt.dominant_sector === selectedSector ? sectorStats[selectedSector].color : '#333');
-                    const opacity = currentView === 'dominant' ? 0.7 :
-                        (selectedSector && pt.dominant_sector === selectedSector ? 0.9 : 0.2);
+                    // Calculate concentration (0-1) for intensity
+                    const concentration = pt.dominant_jobs / pt.total_jobs;
+                    
+                    let color, opacity;
+                    if (currentView === 'dominant') {{
+                        color = pt.sector_color;
+                        opacity = 0.7;
+                    }} else if (selectedSector && pt.dominant_sector === selectedSector) {{
+                        // Use concentration to vary color intensity via getLQColor
+                        // concentration 0.3 → LQ~0.6 (dim), concentration 0.8 → LQ~1.6 (bright)
+                        const pseudoLQ = concentration * 2;  
+                        color = getLQColor(pseudoLQ, sectorStats[selectedSector].color);
+                        opacity = 0.85;
+                    }} else {{
+                        color = '#333';
+                        opacity = 0.2;
+                    }}
                     
                     const radius = Math.max(3, Math.min(8, Math.sqrt(pt.total_jobs / 100)));
                     
@@ -1100,11 +1143,17 @@ def main():
     # Calculate stats
     sector_stats = calculate_sector_stats(tract_df)
     
-    # Create map
-    create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_points, sector_stats)
+    # Create FULL map (with blocks)
+    create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_points, sector_stats,
+                       output_path='output/lodes_unified_map.html', include_blocks=True)
+    
+    # Create LITE map (no blocks - faster loading)
+    create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_points, sector_stats,
+                       output_path='output/lodes_unified_map_lite.html', include_blocks=False)
     
     print("\n✅ Done!")
-    print("\nOpen output/lodes_unified_map.html in your browser")
+    print("\nFull version: output/lodes_unified_map.html")
+    print("Lite version: output/lodes_unified_map_lite.html (faster, no blocks)")
 
 
 if __name__ == '__main__':
