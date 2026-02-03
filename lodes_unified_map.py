@@ -943,12 +943,21 @@ def create_unified_map(tract_geojson, zip_geojson, submarket_geojson, block_poin
                 html += `<strong>Dominant:</strong> ${{props.dominant_sector || 'None'}}<br>`;
                 if (props.concentration) html += `<strong>Concentration:</strong> ${{props.concentration}}%`;
             }} else if (selectedSector) {{
-                const jobs = props[selectedSector + '_jobs'] || 0;
-                const lq = props[selectedSector + '_lq'] || 0;
-                html += `<strong>${{selectedSector}}:</strong> ${{jobs.toLocaleString()}} jobs<br>`;
-                html += `<strong>Location Quotient:</strong> ${{lq.toFixed(2)}}`;
-                if (lq > 1.5) html += ' <span style="color:#2ecc71">● Specialized</span>';
-                else if (lq < 0.5) html += ' <span style="color:#e74c3c">● Underrepresented</span>';
+                // Blocks don't have per-sector data - show concentration instead
+                if (currentGeoLevel === 'block') {{
+                    html += `<strong>Dominant:</strong> ${{props.dominant_sector || 'None'}}<br>`;
+                    html += `<strong>Concentration:</strong> ${{props.concentration || 0}}%`;
+                    if (props.concentration >= 60) html += ' <span style="color:#2ecc71">● Highly concentrated</span>';
+                    else if (props.concentration >= 40) html += ' <span style="color:#f39c12">● Moderately concentrated</span>';
+                }} else {{
+                    // Tract/ZIP/Submarket have per-sector LQ data
+                    const jobs = props[selectedSector + '_jobs'] || 0;
+                    const lq = props[selectedSector + '_lq'] || 0;
+                    html += `<strong>${{selectedSector}}:</strong> ${{jobs.toLocaleString()}} jobs<br>`;
+                    html += `<strong>Location Quotient:</strong> ${{lq.toFixed(2)}}`;
+                    if (lq > 1.5) html += ' <span style="color:#2ecc71">● Specialized</span>';
+                    else if (lq < 0.5) html += ' <span style="color:#e74c3c">● Underrepresented</span>';
+                }}
             }}
             
             content.innerHTML = html;
